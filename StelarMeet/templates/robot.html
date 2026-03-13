@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Stelarbot - Lado Robot</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        body { background: #000; color: #0f0; font-family: monospace; text-align: center; margin: 0; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; }
+        #status { position: absolute; top: 0; width: 100%; z-index: 10; background: rgba(0, 0, 0, 0.8); border-bottom: 1px solid #0f0; padding: 10px 0; }
+        #pantallaRobot { width: 90%; max-width: 800px; border: 5px solid #333; border-radius: 20px; transform: scaleX(-1); background: #111; }
+        .btn-ready { padding: 20px; font-size: 20px; background: #0f0; color: #000; border: none; cursor: pointer; border-radius: 10px; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div id="status">🤖 ESPERANDO ACTIVACIÓN (Haz clic en la pantalla)</div>
+    
+    <img id="pantallaRobot" src="">
+
+    <script>
+        const socket = io({ 
+            transports: ['websocket'], 
+            upgrade: false,
+            reconnection: true,
+            reconnectionAttempts: Infinity
+        });
+
+        const pantalla = document.getElementById('pantallaRobot');
+        const statusDiv = document.getElementById('status');
+
+        // --- SISTEMA DE AUDIO CORREGIDO (PC -> ROBOT) ---
+        let reproductorPC;
+        let mediaSourcePC;
+        let sourceBufferPC;
+        let colaAudioPC = [];
+
+        // Metemos la creación del audio en una función para poder resetearla
+        function inicializarMotorAudioPC() {
+            colaAudioPC = []; // Limpiamos la basura anterior
+            
+            // Si ya existía un reproductor, lo destruimos
+            if (reproductorPC) {
+                reproductorPC.pause();
+                reproductorPC.removeAttribute('src');
+                reproductorPC.load();
+            }
+
+            reproductorPC = new Audio();
+            mediaSourcePC = new MediaSource();
+            reproductorPC.src = URL.createObjectURL(mediaSourcePC);
+            
+            mediaSourcePC.addEventListener('sourceopen', () => {
+                try {
+                    sourceBufferPC = mediaSourcePC.addSourceBuffer('audio/webm; codecs=opus');
+                    sourceBufferPC.addEventListener('updateend', () => {
+                        if (colaAudioPC.length > 0 && !sourceBufferPC.updating) {
+                            sourceBufferPC.appendBuffer(colaAudioPC.shift());
+                        }
+                    });
+                } catch (e) {
+                    console.error("Error al crear SourceBuffer PC:", e);
+                }
+            });
+        }
+
+        // Lo iniciamos la primera vez que carga la página
+        inicializarMotorAudioPC();
+
+        socket.on('audio_stream', (data) => {
+            try {
+                if (reproductorPC.paused) {
+                    reproductorPC.play().catch(e => console.warn("Autoplay bloqueado en el robot"));
+                }
+                const chunk = new Uint8Array(data);
+                if (sourceBufferPC && !sourceBufferPC.updating) {
+                    sourceBufferPC.appendBuffer(chunk);
+                } else {
+                    colaAudioPC.push(chunk);
+                }
+            } catch (e) {
+                console.error("Error procesando audio:", e);
+            }
+        });
+
+        // --- VIDEO (Recibir del PC) ---
+        socket.on('display_frame', (data) => {
+            pantalla.src = data;
+        });
+
+        // --- SISTEMA DE DOBLE CÁMARA (ROBOT -> PC) ---
+        async function activarCamarasRobot() {
+            try {
+                // Pedimos permiso primero de forma general para que el navegador nos dé los nombres/IDs
+                await navigator.mediaDevices.getUserMedia({ video: true });
+                
+                const dispositivos = await navigator.mediaDevices.enumerateDevices();
+                const camaras = dispositivos.filter(d => d.kind === 'videoinput');
+                
+                console.log("Cámaras detectadas:", camaras);
+
+                if (camaras.length > 0) {
+                    statusDiv.innerText = "📸 ACTIVANDO CÁMARA 1...";
+                    await iniciarCamara(camaras[0].deviceId, 'robot_video_front'); 
+                }
+                
+                // Esperamos un pequeño delay para que el bus USB/Cámara no se bloquee
+                await new Promise(resolve => setTimeout(resolve, 1000));
+
+                if (camaras.length > 1) {
+                    statusDiv.innerText = "📸 ACTIVANDO CÁMARA 2...";
+                    await iniciarCamara(camaras[1].deviceId, 'robot_video_rear');  
+                } else {
+                    console.warn("Segunda cámara no encontrada.");
+                }
+            } catch (err) {
+                console.error("Error buscando cámaras:", err);
+                statusDiv.innerText = "⚠️ ERROR DE CÁMARA: Verifica permisos";
+            }
+        }
+
+        async function iniciarCamara(deviceId, canalSocket) {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { 
+                        deviceId: { exact: deviceId },
+                        // Bajamos un poco la resolución para que 2 cámaras fluyan bien
+                        width: { ideal: 320 }, 
+                        height: { ideal: 240 },
+                        frameRate: { ideal: 15 } 
+                    }
+                });
+                
+                const videoVirtual = document.createElement('video');
+                videoVirtual.autoplay = true;
+                videoVirtual.playsinline = true; // Crítico para móviles/tablets
+                videoVirtual.srcObject = stream;
+                
+                // Esperamos a que el video realmente esté reproduciendo antes de capturar frames
+                videoVirtual.onloadedmetadata = () => {
+                    const canvasVirtual = document.createElement('canvas');
+                    const ctxVirtual = canvasVirtual.getContext('2d');
+                    canvasVirtual.width = 320;
+                    canvasVirtual.height = 240;
+
+                    setInterval(() => {
+                        if (socket.connected) {
+                            ctxVirtual.drawImage(videoVirtual, 0, 0, canvasVirtual.width, canvasVirtual.height);
+                            // Bajamos la calidad a 0.3 (30%) para que el buffer de 20MB aguante ambos streams
+                            const frameData = canvasVirtual.toDataURL('image/jpeg', 0.3);
+                            socket.emit(canalSocket, frameData);
+                        }
+                    }, 150); // ~7 FPS por cámara es suficiente para control remoto y más estable
+                };
+
+                console.log(`Canal ${canalSocket} iniciado con éxito.`);
+                return true;
+
+            } catch (err) {
+                console.error("Error encendiendo cámara " + canalSocket, err);
+                return false;
+            }
+        }
+        // --- MICRÓFONO PERPETUO DEL ROBOT (LO QUE EL PC ESCUCHA) ---
+        let robotMicRecorder;
+        let isMicRunning = false;
+
+        async function activarMicrofonoRobot() {
+            if (isMicRunning) return;
+            
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    } 
+                });
+
+                robotMicRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+
+                robotMicRecorder.ondataavailable = async (e) => {
+                    if (e.data.size > 0 && socket.connected) {
+                        const buffer = await e.data.arrayBuffer();
+                        socket.emit('robot_audio_to_server', buffer);
+                    }
+                };
+
+                robotMicRecorder.onstop = () => {
+                    isMicRunning = false;
+                    console.log("🎤 Micrófono detenido. Reintentando en 1s...");
+                    setTimeout(activarMicrofonoRobot, 1000);
+                };
+
+                robotMicRecorder.start(300); 
+                isMicRunning = true;
+                statusDiv.innerText = "🤖 SISTEMAS ACTIVOS - TRANSMITIENDO AUDIO Y VIDEO";
+                statusDiv.style.color = "#0f0";
+                
+            } catch (err) {
+                console.error("Error micro:", err);
+                statusDiv.innerText = "⚠️ ERROR: REVISA LOS PERMISOS EN LA LAPTOP";
+                statusDiv.style.color = "#f00";
+            }
+        }
+
+        // --- MONITOREO DE CONEXIÓN ---
+        socket.on('connect', () => {
+            if (isMicRunning) {
+                statusDiv.innerText = "🤖 CONECTADO AL SERVIDOR";
+                statusDiv.style.color = "#0f0";
+            }
+        });
+
+        socket.on('disconnect', () => {
+            statusDiv.innerText = "❌ DESCONECTADO (Reconectando...)";
+            statusDiv.style.color = "#f00";
+        });
+
+        // --- ACTIVACIÓN ÚNICA ---
+        document.body.onclick = () => {
+            activarCamarasRobot();
+            activarMicrofonoRobot();
+            reproductorPC.play().catch(e => console.log("Audio listo"));
+        };
+
+        // Escuchar comandos remotos del PC
+        socket.on('command', (data) => {
+            if (data.action === 'mic') {
+                if (data.enabled) activarMicrofonoRobot();
+            }
+            // ¡REGLA PARA EVITAR EL CORTE DE LOS 4 SEGUNDOS AL APAGAR/PRENDER!
+            if (data.action === 'reiniciar_audio') {
+                console.log("Reconstruyendo motor de audio para evitar cortes...");
+                inicializarMotorAudioPC();
+            }
+        });
+    </script>
+</body>
+</html>

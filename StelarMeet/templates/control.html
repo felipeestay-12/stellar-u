@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Stelarbot - HUD Maestro</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        /* Ajustes básicos para las nuevas etiquetas de imagen de video */
+        .video-container { position: relative; overflow: hidden; background: #000; }
+        .video-container img { width: 100%; height: 100%; object-fit: cover; }
+    </style>
+</head>
+<body>
+
+    <div class="main-view">
+        <div class="hud-overlay">
+            <div class="btn-container">
+                <img src="/static/img/IA.png" id="btn-ia" class="btn-sprite is-off" onclick="toggleCmd('ia')">
+                <span class="btn-label">IA</span>
+            </div>
+            <div class="btn-container">
+                <img src="/static/img/mano saludo.png" id="btn-saludo" class="btn-sprite" onclick="sendSimpleCmd('saludo')">
+                <span class="btn-label">Saludo</span>
+            </div>
+            <div class="btn-container">
+                <img src="/static/img/micro.png" id="btn-mic" class="btn-sprite is-off" onclick="toggleCmd('mic')">
+                <span class="btn-label">Micro</span>
+            </div>
+            <div class="btn-container">
+                <img src="/static/img/video.png" id="btn-video" class="btn-sprite is-off" onclick="toggleCmd('video')">
+                <span class="btn-label">Video</span>
+            </div>
+            <div class="btn-container">
+                <img src="/static/img/ubi.png" id="btn-ubicacion" class="btn-sprite is-off" onclick="toggleCmd('ubicacion')">
+                <span class="btn-label">Ruta</span>
+            </div>
+            <div class="btn-container">
+                <img src="/static/img/onoff.png" id="btn-onoff" class="btn-sprite is-on" onclick="toggleCmd('onoff')">
+                <span class="btn-label">ON/OFF</span>
+            </div>
+        </div>
+
+        <div class="main-view">
+            <div id="cont-front" class="video-container" onclick="toggleCam('front')">
+                <img id="remoteVideo" src="" alt="Esperando señal Frontal">
+                <div class="cam-label" style="position:absolute; bottom:10px; left:10px; color:#fff; font-size:10px; background:rgba(0,0,0,0.5); padding:2px 5px;">FRONT</div>
+            </div>
+
+            <div id="cont-back" class="video-container" onclick="toggleCam('back')">
+                <img id="rearVideo" src="" alt="Esperando señal Trasera">
+                <div class="cam-label" style="position:absolute; bottom:10px; left:10px; color:#fff; font-size:10px; background:rgba(0,0,0,0.5); padding:2px 5px;">REAR</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="ai-log-container">
+        <div id="ai-log-box">
+            <div class="ai-header" style="display:flex; justify-content:space-between; align-items:center; font-size:10px; font-weight:bold; margin-bottom:8px; color:#444; border-bottom:1px solid #ddd; padding-bottom:4px;">
+                <span>🤖 STELAR-CORE v1.0</span>
+                <span style="background:#333; color:#fff; padding:2px 6px; border-radius:10px; font-size:8px;">STREAMING</span>
+            </div>
+            <div id="ai-content" style="font-size:13px; line-height:1.4; font-family: sans-serif;"></div>
+        </div>
+    </div>
+
+    <div class="bottom-panel">
+        <div class="spacer-left"></div>
+        <div class="control-area">
+            <div class="dpad-master">
+                <img src="/static/img/control.png" class="img-dpad" id="main-dpad">
+                <div class="hitbox up"    id="key-up"    onmousedown="enviarMov('start','up')" onmouseup="enviarMov('stop','up')"></div>
+                <div class="hitbox down"  id="key-down"  onmousedown="enviarMov('start','down')" onmouseup="enviarMov('stop','down')"></div>
+                <div class="hitbox left"  id="key-left"  onmousedown="enviarMov('start','left')" onmouseup="enviarMov('stop','left')"></div>
+                <div class="hitbox right" id="key-right" onmousedown="enviarMov('start','right')" onmouseup="enviarMov('stop','right')"></div>
+            </div>
+        </div>
+        <div class="stats-panel-new">
+            <div class="speed-container">
+                <span id="val-speed">0</span>
+                <span class="speed-unit">km/h</span>
+            </div>
+            <div class="bottom-row">
+                <div class="wifi-wrapper">
+                    <svg viewBox="0 0 24 24" style="width:30px; height:30px;">
+                        <path d="M12 3c4.14 0 7.89 1.59 10.71 4.19l-1.42 1.42C18.81 6.41 15.6 5 12 5s-6.81 1.41-9.29 3.61L1.29 7.19C4.11 4.59 7.86 3 12 3z" fill="#FFFFFF"/>
+                        <path d="M12 7c3.15 0 6.13 1.13 8.49 3.19l-1.42 1.41C17.22 10.07 14.7 9 12 9s-5.22 1.07-7.07 2.6l-1.42-1.41C5.87 8.13 8.85 7 12 7z" fill="#FFFFFF"/>
+                        <path d="M12 11c2.14 0 4.16.77 5.76 2.15l-1.42 1.41c-1.21-1.04-2.71-1.56-4.34-1.56s-3.13.52-4.34 1.56l-1.42-1.41C7.84 11.77 9.86 11 12 11z" fill="#FFFFFF"/>
+                        <circle cx="12" cy="18" r="2" fill="#FFFFFF"/>
+                    </svg>
+                </div>
+                <div class="battery-icon">
+                    <div class="battery-body" style="border:2px solid #fff; width:40px; height:18px; position:relative;">
+                        <div id="battery-fill" style="height:100%; background:#fff; width:0%; transition: width 0.5s;"></div>
+                    </div>
+                </div>
+                <div class="datetime-container">
+                    <div id="hud-time" style="font-weight:bold;">00:00</div>
+                    <div id="hud-date" style="font-size:10px; opacity:0.7;">00/00</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="self-cam-container">
+        <video id="selfVideo" autoplay playsinline muted></video>
+    </div>
+    
+    <audio id="robotEar" autoplay></audio>
+    <audio id="audioDelRobot" autoplay></audio>
+    <video id="webcamControl" autoplay playsinline style="display:none;"></video>
+    <canvas id="canvasProcesador" style="display:none;"></canvas>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+    <script>
+        const webcam = document.getElementById('webcamControl');
+        const canvas = document.getElementById('canvasProcesador');
+        const ctx = canvas.getContext('2d');
+        let videoInterval = null;
+        
+        const socket = io();
+        let localStream = null;
+        let movActual = null;
+        let states = { ia: false, mic: false, video: false, onoff: true, ubicacion: false };
+        
+        // --- RECEPCIÓN DE DOBLE CÁMARA ---
+        socket.on('ver_front', (data) => {
+            const img = document.getElementById('remoteVideo');
+            if (img) img.src = data;
+        });
+
+        socket.on('ver_rear', (data) => {
+            const img = document.getElementById('rearVideo');
+            if (img) img.src = data;
+        });
+
+        // --- RESTO DE TU LÓGICA MANTENIDA ---
+        const reproductorRobot = new Audio();
+        const mediaSource = new MediaSource();
+        reproductorRobot.src = URL.createObjectURL(mediaSource);
+        reproductorRobot.autoplay = true;
+
+        let sourceBuffer;
+        let colaAudio = [];
+
+        mediaSource.addEventListener('sourceopen', () => {
+            try {
+                sourceBuffer = mediaSource.addSourceBuffer('audio/webm; codecs=opus');
+                sourceBuffer.addEventListener('updateend', () => {
+                    if (colaAudio.length > 0 && !sourceBuffer.updating) {
+                        sourceBuffer.appendBuffer(colaAudio.shift());
+                    }
+                });
+            } catch (e) { console.error("Error al crear SourceBuffer:", e); }
+        });
+
+        socket.on('audio_from_robot', (data) => {
+            try {
+                if (reproductorRobot.paused) reproductorRobot.play().catch(e => console.warn("Autoplay bloqueado"));
+                const chunk = new Uint8Array(data);
+                if (sourceBuffer && !sourceBuffer.updating) sourceBuffer.appendBuffer(chunk);
+                else colaAudio.push(chunk);
+            } catch (e) { console.error("Error audio:", e); }
+        });
+
+        async function activarMicrofono() {
+            try {
+                socket.emit('command', { action: 'reiniciar_audio' });
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+                mediaRecorder.ondataavailable = async (e) => { if (e.data.size > 0 && states.mic) socket.emit('audio_chunk', await e.data.arrayBuffer()); };
+                mediaRecorder.start(1000);
+            } catch (err) { console.error("Error mic:", err); }
+        }
+
+        function desactivarMicrofono() { if (mediaRecorder) mediaRecorder.stop(); }
+
+        async function activarVideo() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240, frameRate: 15 } });
+                webcam.srcObject = stream;
+                if (videoInterval) clearInterval(videoInterval);
+                videoInterval = setInterval(() => {
+                    if (states.video && socket.connected) {
+                        canvas.width = 320; canvas.height = 240;
+                        ctx.drawImage(webcam, 0, 0, 320, 240);
+                        socket.emit('video_frame', canvas.toDataURL('image/jpeg', 0.4));
+                    }
+                }, 100);
+            } catch (err) { console.error("Error cámara:", err); toggleCmd('video'); }
+        }
+
+        function desactivarVideo() {
+            if (videoInterval) clearInterval(videoInterval);
+            if (webcam.srcObject) { webcam.srcObject.getTracks().forEach(t => t.stop()); webcam.srcObject = null; }
+        }
+
+        function toggleCmd(type) {
+            const el = document.getElementById(`btn-${type}`);
+            if (!el) return;
+            states[type] = !states[type];
+            el.classList.remove('is-off', 'is-on');
+            el.classList.add(states[type] ? 'is-on' : 'is-off');
+            if (type === 'ia') document.getElementById('ai-log-box').style.display = states.ia ? 'block' : 'none';
+            if (type === 'mic') states.mic ? activarMicrofono() : desactivarMicrofono();
+            if (type === 'video') states.video ? activarVideo() : desactivarVideo();
+            socket.emit('command', { action: type, enabled: states[type] });
+        }
+
+        async function iniciarHardware() {
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+            } catch (err) { console.error("Error HW:", err); }
+        }
+
+        function enviarMov(act, dir) {
+            const hitbox = document.getElementById(`key-${dir}`);
+            if (act === 'start' && movActual !== dir) {
+                if (movActual) enviarMov('stop', movActual);
+                movActual = dir;
+                if (hitbox) hitbox.classList.add('active-key');
+                socket.emit('command', { action: 'start', direction: dir });
+            } else if (act === 'stop' && movActual === dir) {
+                if (hitbox) hitbox.classList.remove('active-key');
+                socket.emit('command', { action: 'stop', direction: dir });
+                movActual = null;
+            }
+        }
+
+        function actualizarReloj() {
+            const n = new Date();
+            document.getElementById('hud-time').innerText = n.getHours().toString().padStart(2,'0') + ":" + n.getMinutes().toString().padStart(2,'0');
+            document.getElementById('hud-date').innerText = n.getDate().toString().padStart(2,'0') + "/" + (n.getMonth()+1).toString().padStart(2,'0');
+        }
+        setInterval(actualizarReloj, 1000);
+        window.onload = () => { iniciarHardware(); actualizarReloj(); };
+    </script>
+</body>
+</html>

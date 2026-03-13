@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Stelarbot - Emisor de Video</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        body { 
+            background: #1a1a1a; 
+            color: white; 
+            text-align: center; 
+            font-family: sans-serif; 
+            margin-top: 50px;
+        }
+        video { 
+            width: 400px; 
+            border-radius: 15px; 
+            border: 3px solid #00ff00; 
+            box-shadow: 0 0 20px rgba(0,255,0,0.2);
+            background: #000;
+        }
+        .status-badge {
+            padding: 10px 20px;
+            border-radius: 20px;
+            background: #333;
+            display: inline-block;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🎥 Transmisión a Pantalla Robot</h1>
+    <video id="webcam" autoplay playsinline></video>
+    <canvas id="procesador" style="display:none;"></canvas>
+    <br>
+    <div class="status-badge">
+        <span id="status">Esperando cámara...</span>
+    </div>
+
+    <script>
+        // CONFIGURACIÓN CRÍTICA: 
+        // Forzamos solo websocket y desactivamos upgrade para evitar errores de paquetes corruptos
+        const socket = io({ 
+            transports: ['websocket'],
+            upgrade: false 
+        });
+
+        const video = document.getElementById('webcam');
+        const canvas = document.getElementById('procesador');
+        const ctx = canvas.getContext('2d');
+        const statusText = document.getElementById('status');
+
+        async function iniciar() {
+            try {
+                // Pedimos resolución baja para maximizar la fluidez en el robot
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        width: 320, 
+                        height: 240, 
+                        frameRate: 15 
+                    } 
+                });
+                
+                video.srcObject = stream;
+                statusText.innerText = "✅ Cámara activa. Conectando con Robot...";
+
+                socket.on('connect', () => {
+                    statusText.innerText = "🚀 TRANSMITIENDO EN VIVO";
+                    statusText.style.color = "#00ff00";
+                });
+
+                // Captura y envío de frames
+                setInterval(() => {
+                    if (socket.connected) {
+                        canvas.width = 320;
+                        canvas.height = 240;
+                        ctx.drawImage(video, 0, 0, 320, 240);
+                        
+                        // Bajamos la calidad a 0.4 para que el servidor Python no sufra
+                        const data = canvas.toDataURL('image/jpeg', 0.4); 
+                        socket.emit('video_frame', data);
+                    }
+                }, 100); // 10 frames por segundo
+
+            } catch (err) {
+                statusText.innerText = "❌ Error de cámara: " + err;
+                statusText.style.color = "#ff4444";
+            }
+        }
+
+        // Iniciar al cargar
+        iniciar();
+    </script>
+</body>
+</html>
